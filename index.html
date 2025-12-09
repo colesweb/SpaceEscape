@@ -13,7 +13,7 @@
             overflow: hidden;
             background-color: #050505;
             font-family: 'Orbitron', sans-serif;
-            touch-action: none;
+            touch-action: none; /* Critical for game, but handled carefully in JS */
             user-select: none;
             -webkit-user-select: none;
         }
@@ -61,7 +61,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            pointer-events: auto;
+            pointer-events: auto; /* Re-enable pointer events for UI */
             backdrop-filter: blur(5px);
             z-index: 10;
             transition: opacity 0.3s;
@@ -91,14 +91,14 @@
             text-align: center;
         }
 
-        /* Primary Button */
+        /* Buttons */
         button {
             background: linear-gradient(45deg, #ff0055, #ff5e00);
             border: none;
-            padding: 15px 40px;
+            padding: 20px 50px; /* Larger touch target */
             color: white;
             font-family: 'Orbitron', sans-serif;
-            font-size: 1.2rem;
+            font-size: 1.3rem;
             font-weight: bold;
             text-transform: uppercase;
             cursor: pointer;
@@ -106,7 +106,9 @@
             border-radius: 4px;
             transform: skew(-10deg);
             transition: transform 0.1s, box-shadow 0.1s;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
+            touch-action: manipulation; /* Allow clicks */
+            pointer-events: auto;
         }
 
         button:active {
@@ -121,21 +123,14 @@
             transform: none;
         }
 
-        /* Secondary Button (Discard) */
         .secondary-btn {
             background: transparent;
             border: 2px solid #555;
             box-shadow: none;
             font-size: 0.9rem;
-            padding: 10px 20px;
+            padding: 15px 30px;
             color: #aaa;
             margin-top: 10px;
-        }
-        
-        .secondary-btn:hover {
-            border-color: #fff;
-            color: #fff;
-            box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
         }
 
         /* Leaderboard styling */
@@ -148,6 +143,9 @@
             border-radius: 8px;
             max-height: 40vh;
             overflow-y: auto;
+            /* Allow scrolling inside leaderboard on mobile */
+            -webkit-overflow-scrolling: touch; 
+            touch-action: pan-y; 
         }
         
         .lb-header {
@@ -180,7 +178,7 @@
         input#playerName {
             background: transparent;
             border: 2px solid #00f3ff;
-            padding: 10px;
+            padding: 15px;
             color: white;
             font-family: 'Orbitron', sans-serif;
             font-size: 1.5rem;
@@ -189,6 +187,7 @@
             outline: none;
             width: 80%;
             max-width: 300px;
+            pointer-events: auto;
         }
 
         .mobile-controls-hint {
@@ -293,7 +292,6 @@
         let startTime = 0;
         let finalTimeString = "00:00";
         
-        // Entities
         let particles = [];
         let shockwaves = [];
         let obstacles = [];
@@ -312,19 +310,42 @@
         window.addEventListener('resize', resize);
         resize();
 
-        document.addEventListener('touchstart', (e) => { e.preventDefault(); handleTouch(e.touches); }, { passive: false });
-        document.addEventListener('touchmove', (e) => { e.preventDefault(); handleTouch(e.touches); }, { passive: false });
-        document.addEventListener('touchend', (e) => { e.preventDefault(); handleTouch(e.touches); });
+        // --- GLOBAL TOUCH HANDLER (FIXED) ---
+        // This handles game controls AND ensures UI buttons are clickable
+        const handleGlobalTouch = (e) => {
+            // Check if the user touched a button or input field
+            const target = e.target;
+            if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.closest('.leaderboard-container')) {
+                return; // Let default browser behavior handle clicks/inputs
+            }
 
-        function handleTouch(touches) {
-            input.left = false; input.right = false;
+            // Otherwise, treat as Game Control and prevent default (scrolling)
+            if (e.type !== 'touchend') {
+                e.preventDefault(); 
+            }
+            
+            // Game Input Logic
+            if (!gameActive) return;
+
+            input.left = false; 
+            input.right = false;
+            
+            if (e.type === 'touchend') return; // Stop movement on release
+
+            const touches = e.touches;
             const midPoint = window.innerWidth / 2;
             for (let i = 0; i < touches.length; i++) {
                 if (touches[i].clientX < midPoint) input.left = true;
                 else input.right = true;
             }
-        }
+        };
 
+        // Attach listeners with passive: false to allow preventDefault
+        document.addEventListener('touchstart', handleGlobalTouch, { passive: false });
+        document.addEventListener('touchmove', handleGlobalTouch, { passive: false });
+        document.addEventListener('touchend', handleGlobalTouch, { passive: false });
+
+        // Keyboard (Desktop)
         document.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowLeft') input.left = true;
             if (e.key === 'ArrowRight') input.right = true;
@@ -334,7 +355,10 @@
             if (e.key === 'ArrowRight') input.right = false;
         });
 
-        function startGame() {
+        function startGame(e) {
+            // Prevent double firing if both touch/click register
+            if (e && e.cancelable) e.preventDefault(); 
+            
             if (gameActive) return;
             gameActive = true;
             score = 0;
@@ -375,7 +399,6 @@
             frameCount++;
             score += 0.1;
             
-            // --- TIME & DIFFICULTY ---
             if (frameCount % 500 === 0) speed += 0.5;
 
             const elapsed = Date.now() - startTime;
@@ -384,7 +407,6 @@
             finalTimeString = `${mins}:${secs.toString().padStart(2, '0')}`;
             document.getElementById('timeDisplay').innerText = `TIME: ${finalTimeString}`;
 
-            // Player Move
             const moveSpeed = 7 + (speed * 0.1);
             if (input.left) { player.x -= moveSpeed; player.tilt = -15; }
             else if (input.right) { player.x += moveSpeed; player.tilt = 15; }
@@ -393,7 +415,6 @@
             if (player.x < player.width/2) player.x = player.width/2;
             if (player.x > canvas.width - player.width/2) player.x = canvas.width - player.width/2;
 
-            // --- SPAWNING ---
             const spawnRate = Math.max(10, 60 - Math.floor(speed * 2.5));
             
             if (frameCount % spawnRate === 0) {
@@ -411,7 +432,7 @@
                     active: true,
                     type: type,
                     angle: 0, 
-                    startX: obstacles.length // placeholder
+                    startX: obstacles.length 
                 });
                 obstacles[obstacles.length-1].startX = obstacles[obstacles.length-1].x;
             }
@@ -420,7 +441,6 @@
                 coins.push({ x: Math.random() * (canvas.width - 30), y: -100, size: 15, active: true });
             }
 
-            // Update Obstacles
             obstacles.forEach(obs => {
                 obs.y += speed;
                 
@@ -433,7 +453,6 @@
                     obs.angle += 0.1; 
                 }
 
-                // Collisions
                 if (obs.active && 
                     player.x - player.width/2 < obs.x + obs.w && 
                     player.x + player.width/2 > obs.x && 
@@ -454,7 +473,6 @@
                 }
             });
 
-            // FIXED LIST UPDATES (No splicing inside forEach)
             obstacles = obstacles.filter(o => o.y < canvas.height + 100);
             coins = coins.filter(c => c.y < canvas.height + 100);
             
@@ -485,7 +503,6 @@
             ctx.fillStyle = '#050505';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Grid
             gridOffset = (gridOffset + speed) % 50;
             ctx.strokeStyle = 'rgba(163, 21, 163, 0.3)';
             ctx.lineWidth = 2;
@@ -538,7 +555,6 @@
             }
             
             ctx.shadowBlur = 0;
-            // Continue animation if particles exist, even if dead
             if (!gameActive && (particles.length > 0 || shockwaves.length > 0)) {
                 requestAnimationFrame(draw);
             }
@@ -552,7 +568,6 @@
                 requestAnimationFrame(gameLoop);
             } catch (error) {
                 console.error(error);
-                alert("Game Crashed: " + error.message);
                 gameActive = false;
             }
         }
@@ -617,8 +632,15 @@
             } catch (e) { console.error(e); list.innerHTML = "Error loading scores."; }
         }
 
-        document.getElementById('startBtn').addEventListener('click', startGame);
-        document.getElementById('saveBtn').addEventListener('click', saveScoreAndGoHome);
+        // --- BUTTON LISTENERS (Dual Bindings for Reliability) ---
+        const startBtn = document.getElementById('startBtn');
+        startBtn.addEventListener('click', startGame);
+        startBtn.addEventListener('touchstart', startGame);
+
+        const saveBtn = document.getElementById('saveBtn');
+        saveBtn.addEventListener('click', saveScoreAndGoHome);
+        // no touchstart for save to avoid double submit, click is sufficient for forms usually
+
         document.getElementById('discardBtn').addEventListener('click', discardAndGoHome);
     </script>
 </body>
